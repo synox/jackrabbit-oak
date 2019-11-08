@@ -17,13 +17,10 @@
 package org.apache.jackrabbit.oak.upgrade.cli.node;
 
 import com.azure.storage.blob.models.BlobStorageException;
-import com.azure.storage.common.StorageSharedKeyCredential;
 import com.google.common.io.Closer;
 import com.google.common.io.Files;
 import org.apache.jackrabbit.oak.segment.SegmentNodeStoreBuilders;
 import org.apache.jackrabbit.oak.segment.azure.AzurePersistence;
-import org.apache.jackrabbit.oak.segment.azure.AzureUtilities;
-import org.apache.jackrabbit.oak.segment.azure.compat.CloudBlobDirectory;
 import org.apache.jackrabbit.oak.segment.file.FileStore;
 import org.apache.jackrabbit.oak.segment.file.FileStoreBuilder;
 import org.apache.jackrabbit.oak.segment.file.InvalidFileStoreVersionException;
@@ -141,21 +138,21 @@ public class SegmentAzureFactory implements NodeStoreFactory {
     }
 
     private AzurePersistence createAzurePersistence() throws BlobStorageException, URISyntaxException, InvalidKeyException {
-        CloudBlobDirectory cloudBlobDirectory = null;
+        AzurePersistence azurePersistence = null;
 
         if (accountName != null && uri != null) {
             String key = System.getenv("AZURE_SECRET_KEY");
-            StorageSharedKeyCredential credential = new StorageSharedKeyCredential(accountName, key);
-            cloudBlobDirectory = AzureUtilities.cloudBlobDirectoryFrom(credential, uri, dir, null);
+            azurePersistence = AzurePersistence.createAzurePersistenceByContainerUrl(uri, key, dir);
+
         } else if (connectionString != null && containerName != null) {
-            cloudBlobDirectory = AzureUtilities.cloudBlobDirectoryFrom(connectionString, containerName, dir, null);
+            azurePersistence = AzurePersistence.createAzurePersistenceByConnectionString(connectionString, containerName, dir);
         }
 
-        if (cloudBlobDirectory == null) {
+        if (azurePersistence == null) {
             throw new IllegalArgumentException("Could not connect to Azure storage. Too few connection parameters specified!");
         }
 
-        return new AzurePersistence(cloudBlobDirectory);
+        return azurePersistence;
     }
 
     @Override
@@ -178,7 +175,7 @@ public class SegmentAzureFactory implements NodeStoreFactory {
         } catch (InvalidFileStoreVersionException e) {
             throw new IOException(e);
         }
-            // TODO OAK-8413: verify, remove the tmp dir?
+        // TODO OAK-8413: verify, remove the tmp dir?
     }
 
     @Override

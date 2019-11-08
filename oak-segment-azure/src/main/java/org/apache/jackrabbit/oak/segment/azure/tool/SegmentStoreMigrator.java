@@ -18,9 +18,6 @@ package org.apache.jackrabbit.oak.segment.azure.tool;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.jackrabbit.oak.commons.Buffer;
-import org.apache.jackrabbit.oak.segment.azure.AzurePersistence;
-import org.apache.jackrabbit.oak.segment.azure.AzureStorageMonitorPolicy;
-import org.apache.jackrabbit.oak.segment.azure.compat.CloudBlobDirectory;
 import org.apache.jackrabbit.oak.segment.azure.tool.ToolUtils.SegmentStoreType;
 import org.apache.jackrabbit.oak.segment.file.tar.TarPersistence;
 import org.apache.jackrabbit.oak.segment.spi.RepositoryNotReachableException;
@@ -41,7 +38,6 @@ import org.slf4j.LoggerFactory;
 import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -296,12 +292,6 @@ public class SegmentStoreMigrator implements Closeable  {
             return this;
         }
 
-        public Builder withSource(CloudBlobDirectory dir, AzureStorageMonitorPolicy monitorPolicy){
-            this.source = new AzurePersistence(dir).setMonitorPolicy(monitorPolicy);
-            this.sourceName = storeDescription(SegmentStoreType.AZURE, Paths.get(dir.getContainerName(), dir.getPrefix()).toString());
-            return this;
-        }
-
         public Builder withSourcePersistence(SegmentNodeStorePersistence source, String sourceName) {
             this.source = source;
             this.sourceName = sourceName;
@@ -317,13 +307,6 @@ public class SegmentStoreMigrator implements Closeable  {
         public Builder withTarget(File dir) {
             this.target = new TarPersistence(dir);
             this.targetName = storeDescription(SegmentStoreType.TAR, dir.getPath());
-            return this;
-        }
-
-        public Builder withTarget(CloudBlobDirectory dir, AzureStorageMonitorPolicy monitorPolicy) {
-            this.target = new AzurePersistence(dir).setMonitorPolicy(monitorPolicy);
-            this.targetName = storeDescription(SegmentStoreType.AZURE, Paths.get(dir.getContainerName(), dir.getPrefix()).toString());
-
             return this;
         }
 

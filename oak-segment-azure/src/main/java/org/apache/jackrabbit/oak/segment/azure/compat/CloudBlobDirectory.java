@@ -47,8 +47,8 @@ public class CloudBlobDirectory {
     private static Logger LOG = LoggerFactory.getLogger(CloudBlobDirectory.class);
 
     private final BlobContainerClient containerClient;
-    private final String directory;
 
+    private final String directory;
     public CloudBlobDirectory(@NotNull final BlobContainerClient containerClient,
                               @NotNull final String directory) {
         this.containerClient = containerClient;
@@ -176,4 +176,8 @@ public class CloudBlobDirectory {
     }
 
 
+
+    public BlobContainerClient getContainerClient() {
+        return containerClient;
+    }
 }

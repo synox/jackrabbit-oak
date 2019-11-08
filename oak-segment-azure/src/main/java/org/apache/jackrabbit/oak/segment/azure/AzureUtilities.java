@@ -21,7 +21,6 @@ import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.azure.storage.blob.models.BlobStorageException;
 import com.azure.storage.blob.specialized.BlobClientBase;
-import com.azure.storage.common.StorageSharedKeyCredential;
 import org.apache.jackrabbit.oak.commons.Buffer;
 import org.apache.jackrabbit.oak.segment.azure.compat.CloudBlobDirectory;
 import org.apache.jackrabbit.oak.segment.spi.RepositoryNotReachableException;
@@ -87,24 +86,6 @@ public final class AzureUtilities {
                 log.error("Can't delete blob {}", AzureUtilities.getBlobPath(blob), e);
             }
         });
-    }
-
-    public static CloudBlobDirectory cloudBlobDirectoryFrom(StorageSharedKeyCredential credential,
-                                                            String uriString, String dir, AzureStorageMonitorPolicy monitorPolicy) throws URISyntaxException, BlobStorageException {
-        URI uri = new URI(uriString);
-        String containerName = extractContainerName(uri);
-
-        BlobContainerClient container = new BlobServiceClientBuilder()
-                .credential(credential)
-                .endpoint(String.format("https://%s", uri.getHost()))
-                .addPolicy(monitorPolicy)
-                .buildClient()
-                .getBlobContainerClient(containerName);
-        return new CloudBlobDirectory(container, dir);
-    }
-
-    public static String extractContainerName(URI uri) {
-        return Paths.get(uri.getPath()).subpath(0, 1).toString();
     }
 
     public static CloudBlobDirectory cloudBlobDirectoryFrom(String connection, String containerName,

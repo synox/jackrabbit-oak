@@ -30,8 +30,6 @@ import org.apache.jackrabbit.oak.segment.SegmentNodeStoreBuilders;
 import org.apache.jackrabbit.oak.segment.SegmentNotFoundException;
 import org.apache.jackrabbit.oak.segment.SegmentNotFoundExceptionListener;
 import org.apache.jackrabbit.oak.segment.azure.AzurePersistence;
-import org.apache.jackrabbit.oak.segment.azure.AzureUtilities;
-import org.apache.jackrabbit.oak.segment.azure.compat.CloudBlobDirectory;
 import org.apache.jackrabbit.oak.segment.compaction.SegmentGCOptions;
 import org.apache.jackrabbit.oak.segment.file.FileStore;
 import org.apache.jackrabbit.oak.segment.file.FileStoreBuilder;
@@ -64,7 +62,8 @@ public class SegmentTarFixture extends OakFixture {
      */
     SegmentNotFoundExceptionListener IGNORE_SNFE = new SegmentNotFoundExceptionListener() {
         @Override
-        public void notify(@NotNull SegmentId id, @NotNull SegmentNotFoundException snfe) { }
+        public void notify(@NotNull SegmentId id, @NotNull SegmentNotFoundException snfe) {
+        }
     };
 
     private static final int MB = 1024 * 1024;
@@ -166,7 +165,7 @@ public class SegmentTarFixture extends OakFixture {
     }
 
     public SegmentTarFixture(SegmentTarFixtureBuilder builder, boolean withColdStandby, int syncInterval,
-            boolean shareBlobStore, boolean oneShotRun, boolean secure) {
+                             boolean shareBlobStore, boolean oneShotRun, boolean secure) {
         super(builder.name);
         this.base = builder.base;
         this.parentPath = new File(base, unique);
@@ -195,8 +194,8 @@ public class SegmentTarFixture extends OakFixture {
                 .withMemoryMapping(memoryMapping);
 
         if (azureConnectionString != null) {
-            org.apache.jackrabbit.oak.segment.azure.compat.CloudBlobDirectory directory = AzureUtilities.cloudBlobDirectoryFrom(azureConnectionString, azureContainerName,azureRootPath, null);
-            fileStoreBuilder.withCustomPersistence(new AzurePersistence(directory));
+            AzurePersistence azurePersistence = AzurePersistence.createAzurePersistenceByConnectionString(azureConnectionString, azureContainerName, azureRootPath);
+            fileStoreBuilder.withCustomPersistence(azurePersistence);
         }
 
         BlobStore blobStore = null;
@@ -213,7 +212,7 @@ public class SegmentTarFixture extends OakFixture {
         Oak oak = newOak(SegmentNodeStoreBuilders.builder(fs).build());
         if (blobStore != null) {
             oak.getWhiteboard()
-                .register(BlobAccessProvider.class, (BlobAccessProvider) blobStore, Collections.EMPTY_MAP);
+                    .register(BlobAccessProvider.class, (BlobAccessProvider) blobStore, Collections.EMPTY_MAP);
         }
 
         return oak;
@@ -235,13 +234,15 @@ public class SegmentTarFixture extends OakFixture {
             FileStoreBuilder builder = fileStoreBuilder(new File(parentPath, "primary-" + i));
 
             if (azureConnectionString != null) {
-                @NotNull BlobContainerClient container = AzureUtilities.getContainerClient(azureConnectionString, azureContainerName, null);
-                if (! container.exists()) {
+                AzurePersistence azurePersistence = AzurePersistence.createAzurePersistenceByConnectionString(azureConnectionString, azureContainerName, "/primary-" + i);
+
+                BlobContainerClient container = azurePersistence.getContainer();
+                if (!container.exists()) {
                     container.create();
                 }
+
                 containers[i] = container;
-                CloudBlobDirectory directory = new CloudBlobDirectory(container,  "/primary-" + i);
-                builder.withCustomPersistence(new AzurePersistence(directory));
+                builder.withCustomPersistence(azurePersistence);
             }
 
             if (blobStore != null) {
@@ -263,7 +264,7 @@ public class SegmentTarFixture extends OakFixture {
             cluster[i] = newOak(SegmentNodeStoreBuilders.builder(stores[i]).build());
             if (blobStore != null) {
                 cluster[i].getWhiteboard()
-                    .register(BlobAccessProvider.class, (BlobAccessProvider) blobStore, Collections.EMPTY_MAP);
+                        .register(BlobAccessProvider.class, (BlobAccessProvider) blobStore, Collections.EMPTY_MAP);
             }
         }
         return cluster;
@@ -273,18 +274,12 @@ public class SegmentTarFixture extends OakFixture {
      * Attaches a standby instance located at index (n+i) in the cluster to the
      * primary located at index i
      *
-     * @param i
-     *            the primary index
-     * @param n
-     *            the number of primary instances in the cluster
-     * @param statsProvider
-     *            statistics provider for the file/blob store(s)
-     * @param blobStore
-     *            the blob store used by the primary (can be <code>null</code>)
-     * @throws InvalidFileStoreVersionException
-     *             if an incorrect oak-segment-tar version is used
-     * @throws IOException
-     *             if the file store manifest cannot be saved
+     * @param i             the primary index
+     * @param n             the number of primary instances in the cluster
+     * @param statsProvider statistics provider for the file/blob store(s)
+     * @param blobStore     the blob store used by the primary (can be <code>null</code>)
+     * @throws InvalidFileStoreVersionException if an incorrect oak-segment-tar version is used
+     * @throws IOException                      if the file store manifest cannot be saved
      */
     private void attachStandby(int i, int n, StatisticsProvider statsProvider, BlobStore blobStore)
             throws InvalidFileStoreVersionException, IOException {
@@ -300,16 +295,16 @@ public class SegmentTarFixture extends OakFixture {
         }
 
         SegmentGCOptions gcOptions = SegmentGCOptions.defaultGCOptions()
-            .setRetainedGenerations(1);
+                .setRetainedGenerations(1);
 
         stores[n + i] = builder
-            .withGCOptions(gcOptions)
-            .withMaxFileSize(maxFileSize)
-            .withStatisticsProvider(statsProvider)
-            .withSegmentCacheSize(segmentCacheSize)
-            .withMemoryMapping(memoryMapping)
-            .withSnfeListener(IGNORE_SNFE)
-            .build();
+                .withGCOptions(gcOptions)
+                .withMaxFileSize(maxFileSize)
+                .withStatisticsProvider(statsProvider)
+                .withSegmentCacheSize(segmentCacheSize)
+                .withMemoryMapping(memoryMapping)
+                .withSnfeListener(IGNORE_SNFE)
+                .build();
 
         int port = 0;
         try (ServerSocket socket = new ServerSocket(0)) {
@@ -317,11 +312,11 @@ public class SegmentTarFixture extends OakFixture {
         }
 
         serverSyncs[i] = StandbyServerSync.builder()
-            .withPort(port)
-            .withFileStore(stores[i])
-            .withBlobChunkSize(1 * MB)
-            .withSecureConnection(secure)
-            .build();
+                .withPort(port)
+                .withFileStore(stores[i])
+                .withBlobChunkSize(1 * MB)
+                .withSecureConnection(secure)
+                .build();
         clientSyncs[i] = new StandbyClientSync("127.0.0.1", port, stores[n + i], secure, DEFAULT_TIMEOUT, false, new File(StandardSystemProperty.JAVA_IO_TMPDIR.value()));
 
         if (!oneShotRun) {
@@ -338,8 +333,7 @@ public class SegmentTarFixture extends OakFixture {
      * settings provided (e.g. use data store or not, attach cold standby
      * instance, etc.)
      *
-     * @param n
-     *            number of primary instances in the cluster
+     * @param n number of primary instances in the cluster
      */
     private void init(int n) {
         int fileStoresLength = n;

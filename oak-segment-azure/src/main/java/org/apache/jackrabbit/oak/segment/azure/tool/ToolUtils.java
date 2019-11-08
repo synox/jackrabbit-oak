@@ -19,13 +19,10 @@
 package org.apache.jackrabbit.oak.segment.azure.tool;
 
 import com.azure.storage.blob.models.BlobStorageException;
-import com.azure.storage.common.StorageSharedKeyCredential;
 import com.google.common.base.Stopwatch;
+import org.apache.commons.lang.StringUtils;
 import org.apache.jackrabbit.oak.commons.Buffer;
 import org.apache.jackrabbit.oak.segment.azure.AzurePersistence;
-import org.apache.jackrabbit.oak.segment.azure.AzureStorageMonitorPolicy;
-import org.apache.jackrabbit.oak.segment.azure.AzureUtilities;
-import org.apache.jackrabbit.oak.segment.azure.compat.CloudBlobDirectory;
 import org.apache.jackrabbit.oak.segment.file.FileStore;
 import org.apache.jackrabbit.oak.segment.file.FileStoreBuilder;
 import org.apache.jackrabbit.oak.segment.file.InvalidFileStoreVersionException;
@@ -40,15 +37,10 @@ import org.jetbrains.annotations.NotNull;
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.net.URISyntaxException;
 import java.text.MessageFormat;
-import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
-import static org.apache.jackrabbit.oak.segment.azure.util.AzureConfigurationParserUtils.KEY_ACCOUNT_NAME;
-import static org.apache.jackrabbit.oak.segment.azure.util.AzureConfigurationParserUtils.KEY_DIR;
-import static org.apache.jackrabbit.oak.segment.azure.util.AzureConfigurationParserUtils.KEY_STORAGE_URI;
-import static org.apache.jackrabbit.oak.segment.azure.util.AzureConfigurationParserUtils.parseAzureConfigurationFromUri;
 import static org.apache.jackrabbit.oak.segment.compaction.SegmentGCOptions.defaultGCOptions;
 
 /**
@@ -78,16 +70,12 @@ public class ToolUtils {
 
         @NotNull
         public static String withoutAzPrefix(String location) {
-            if (location.startsWith(AZ_PREFIX)) {
-                return location.substring(AZ_PREFIX.length());
-            } else {
-                return location;
-            }
+            return StringUtils.removeStart(location, AZ_PREFIX);
         }
     }
 
     public static FileStore newFileStore(SegmentNodeStorePersistence persistence, File directory,
-            boolean strictVersionCheck, int segmentCacheSize, long gcLogInterval)
+                                         boolean strictVersionCheck, int segmentCacheSize, long gcLogInterval)
             throws IOException, InvalidFileStoreVersionException, BlobStorageException {
         FileStoreBuilder builder = FileStoreBuilder.fileStoreBuilder(directory)
                 .withCustomPersistence(persistence).withMemoryMapping(false).withStrictVersionCheck(strictVersionCheck)
@@ -98,14 +86,18 @@ public class ToolUtils {
     }
 
     public static SegmentNodeStorePersistence newSegmentNodeStorePersistence(SegmentStoreType storeType,
-            String pathOrUri) {
-        SegmentNodeStorePersistence persistence = null;
+                                                                             String pathOrUri) {
+        SegmentNodeStorePersistence persistence;
 
         switch (storeType) {
             case AZURE:
-                AzureStorageMonitorPolicy monitorPolicy = new AzureStorageMonitorPolicy();
-                CloudBlobDirectory cloudBlobDirectory = createCloudBlobDirectory(SegmentStoreType.withoutAzPrefix(pathOrUri), monitorPolicy);
-                persistence = new AzurePersistence(cloudBlobDirectory).setMonitorPolicy(monitorPolicy);
+                String uriWithoutPrefix = SegmentStoreType.withoutAzPrefix(pathOrUri);
+
+                String azureSecretKey = System.getenv("AZURE_SECRET_KEY");
+                Objects.requireNonNull(azureSecretKey, "Could not connect to the Azure Storage. Please verify if AZURE_SECRET_KEY environment variable "
+                        + "is correctly set!");
+
+                persistence = AzurePersistence.createAzurePersistenceByUri(uriWithoutPrefix, azureSecretKey);
                 break;
             default:
                 persistence = new TarPersistence(new File(pathOrUri));
@@ -125,33 +117,6 @@ public class ToolUtils {
         }
 
         return archiveManager;
-    }
-
-    public static CloudBlobDirectory createCloudBlobDirectory(String uriString, AzureStorageMonitorPolicy monitorPolicy) {
-        Map<String, String> config = parseAzureConfigurationFromUri(uriString);
-
-        String accountName = config.get(KEY_ACCOUNT_NAME);
-        String key = System.getenv("AZURE_SECRET_KEY");
-
-        StorageSharedKeyCredential credential = null;
-        try {
-            credential = new StorageSharedKeyCredential(accountName, key);
-
-        } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException(
-                    "Could not connect to the Azure Storage. Please verify if AZURE_SECRET_KEY environment variable "
-                            + "is correctly set!");
-        }
-
-        String uri = config.get(KEY_STORAGE_URI);
-        String dir = config.get(KEY_DIR);
-
-        try {
-            return AzureUtilities.cloudBlobDirectoryFrom(credential, uri, dir, monitorPolicy);
-        } catch (URISyntaxException | BlobStorageException e) {
-            throw new IllegalArgumentException(
-                    "Could not connect to the Azure Storage. Please verify the uri provided!");
-        }
     }
 
     public static SegmentStoreType storeTypeFromPathOrUri(String pathOrUri) {

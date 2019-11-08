@@ -18,10 +18,8 @@
  */
 package org.apache.jackrabbit.oak.segment.azure;
 
-import com.azure.storage.blob.BlobContainerClient;
-import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.azure.storage.blob.models.BlobStorageException;
-import org.apache.jackrabbit.oak.segment.azure.compat.CloudBlobDirectory;
+import org.apache.jackrabbit.oak.commons.IOUtils;
 import org.apache.jackrabbit.oak.segment.spi.persistence.SegmentNodeStorePersistence;
 import org.osgi.framework.ServiceRegistration;
 import org.osgi.service.component.ComponentContext;
@@ -67,39 +65,27 @@ public class AzureSegmentStoreService {
 
     private static SegmentNodeStorePersistence createAzurePersistence(Configuration configuration) throws IOException {
         try {
+
             StringBuilder connectionString = new StringBuilder();
             if (configuration.connectionURL() == null || configuration.connectionURL().trim().isEmpty()) {
                 connectionString.append("DefaultEndpointsProtocol=https;");
                 connectionString.append("AccountName=").append(configuration.accountName()).append(';');
                 connectionString.append("AccountKey=").append(configuration.accessKey()).append(';');
+
+                // TODO OAK-8413: endpoint seems not required
+//                String endpoint = String.format("https://%s.blob.core.windows.net", configuration.accountName());
+//                connectionString.append("BlobEndpoint=").append(endpoint).append(';');
             } else {
                 connectionString.append(configuration.connectionURL());
             }
-            log.info("Connection string: '{}'", connectionString.toString());
+            String connString = connectionString.toString();
+            log.info("Connection string: '{}'", connString);
 
-            AzureStorageMonitorPolicy monitorPolicy = new AzureStorageMonitorPolicy();
+            String containerName = configuration.containerName();
+            String rootPath = configuration.rootPath();
+            String directoryPath = IOUtils.removeLeadingSlash(rootPath);
 
-            BlobContainerClient containerClient = new BlobServiceClientBuilder()
-                    .connectionString(configuration.connectionURL())
-                    .endpoint(String.format("https://%s.blob.core.windows.net", configuration.accountName()))
-                    .addPolicy(monitorPolicy)
-                    .buildClient()
-                    .getBlobContainerClient(configuration.containerName());
-
-            if (!containerClient.exists()) {
-                containerClient.create();
-            }
-
-
-            String path = configuration.rootPath();
-            if (path != null && path.length() > 0 && path.charAt(0) == '/') {
-                path = path.substring(1);
-            }
-
-            CloudBlobDirectory directory = new CloudBlobDirectory(containerClient, path);
-
-            return new AzurePersistence(directory)
-                    .setMonitorPolicy(monitorPolicy);
+            return AzurePersistence.createAzurePersistenceByConnectionString(connString, containerName, directoryPath);
         } catch (BlobStorageException e) {
             throw new IOException(e);
         }

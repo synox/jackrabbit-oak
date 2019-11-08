@@ -16,10 +16,14 @@
  */
 package org.apache.jackrabbit.oak.segment.azure;
 
+import com.azure.storage.blob.BlobContainerClient;
+import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.azure.storage.blob.models.BlobStorageException;
 import com.azure.storage.blob.specialized.AppendBlobClient;
 import com.azure.storage.blob.specialized.BlockBlobClient;
+import com.azure.storage.common.StorageSharedKeyCredential;
 import org.apache.jackrabbit.oak.segment.azure.compat.CloudBlobDirectory;
+import org.apache.jackrabbit.oak.segment.azure.util.AzureConfigurationParserUtils;
 import org.apache.jackrabbit.oak.segment.spi.monitor.FileStoreMonitor;
 import org.apache.jackrabbit.oak.segment.spi.monitor.IOMonitor;
 import org.apache.jackrabbit.oak.segment.spi.monitor.RemoteStoreMonitor;
@@ -29,11 +33,15 @@ import org.apache.jackrabbit.oak.segment.spi.persistence.ManifestFile;
 import org.apache.jackrabbit.oak.segment.spi.persistence.RepositoryLock;
 import org.apache.jackrabbit.oak.segment.spi.persistence.SegmentArchiveManager;
 import org.apache.jackrabbit.oak.segment.spi.persistence.SegmentNodeStorePersistence;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.Map;
 
 public class AzurePersistence implements SegmentNodeStorePersistence {
 
@@ -52,11 +60,20 @@ public class AzurePersistence implements SegmentNodeStorePersistence {
      */
     protected final CloudBlobDirectory segmentstoreDirectory;
 
+
     @Nullable
     private AzureStorageMonitorPolicy monitorPolicy;
+    private BlobContainerClient container;
+
+    public AzurePersistence(BlobContainerClient container, String directoryPath) {
+        this.container = container;
+        this.segmentstoreDirectory = new CloudBlobDirectory(this.container, directoryPath);
+    }
 
     public AzurePersistence(CloudBlobDirectory segmentStoreDirectory) {
-        this.segmentstoreDirectory = segmentStoreDirectory;
+        this(segmentStoreDirectory.getContainerClient(), segmentStoreDirectory.getPrefix());
+
+//        this.segmentstoreDirectory = segmentStoreDirectory;
 
         // TODO OAK-8413: add retry handling
 //        BlobRequestOptions defaultRequestOptions = segmentStoreDirectory.getServiceClient().getDefaultRequestOptions();
@@ -75,6 +92,64 @@ public class AzurePersistence implements SegmentNodeStorePersistence {
 //                defaultRequestOptions.setTimeoutIntervalInMs((int) TimeUnit.SECONDS.toMillis(TIMEOUT_INTERVAL));
 //            }
 //        }
+    }
+
+    public static AzurePersistence createAzurePersistenceByConnectionString(String connectionString, String containerName, String directoryPath) {
+        BlobServiceClientBuilder builder = createBuilder(connectionString);
+        return createPersistence(containerName, directoryPath, builder, true);
+    }
+
+    public static AzurePersistence createAzurePersistenceByContainerUrl(@NotNull String containerUri, String accountKey, String dir) {
+        return createAzurePersistenceByUri(containerUri + "/" + dir, accountKey);
+    }
+
+    public static AzurePersistence createAzurePersistenceByUri(@NotNull String uriString, String accountKey) {
+        try {
+            Map<String, String> config = AzureConfigurationParserUtils.parseAzureConfigurationFromUri(uriString);
+            BlobServiceClientBuilder builder = createBuilder(config, accountKey);
+
+            String dir = config.get(AzureConfigurationParserUtils.KEY_DIR);
+            String containerName = config.get(AzureConfigurationParserUtils.KEY_CONTAINER_NAME);
+            return createPersistence(containerName, dir, builder, false);
+        } catch (URISyntaxException | BlobStorageException e) {
+            throw new IllegalArgumentException(
+                    "Could not connect to the Azure Storage. Please verify the uri provided!");
+        }
+    }
+
+    private static AzurePersistence createPersistence(String containerName, String directoryPath, BlobServiceClientBuilder builder, boolean createIfNotExisting) {
+        AzureStorageMonitorPolicy monitorPolicy = new AzureStorageMonitorPolicy();
+
+        BlobContainerClient container = builder
+                .addPolicy(monitorPolicy)
+                .buildClient()
+                .getBlobContainerClient(containerName);
+
+        if (createIfNotExisting && !container.exists()) {
+            container.create();
+        }
+
+        return new AzurePersistence(container, directoryPath)
+                .setMonitorPolicy(monitorPolicy);
+    }
+
+    @NotNull
+    private static BlobServiceClientBuilder createBuilder(Map<String, String> config, String accountKey) throws URISyntaxException {
+        String accountName = config.get(AzureConfigurationParserUtils.KEY_ACCOUNT_NAME);
+        StorageSharedKeyCredential credential = new StorageSharedKeyCredential(accountName, accountKey);
+
+        String uri = config.get(AzureConfigurationParserUtils.KEY_STORAGE_URI);
+        String host = new URI(uri).getHost();
+
+        return new BlobServiceClientBuilder()
+                .credential(credential)
+                .endpoint(String.format("https://%s", host));
+    }
+
+    @NotNull
+    private static BlobServiceClientBuilder createBuilder(String connectionString) {
+        return new BlobServiceClientBuilder()
+                .connectionString(connectionString);
     }
 
     @Override
@@ -140,4 +215,13 @@ public class AzurePersistence implements SegmentNodeStorePersistence {
         }
     }
 
+    public void createContainerIfNotExists() {
+        if (!container.exists()) {
+            container.create();
+        }
+    }
+
+    public BlobContainerClient getContainer() {
+        return this.container;
+    }
 }
